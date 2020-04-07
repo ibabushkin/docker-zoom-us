@@ -40,23 +40,44 @@ cleanup_stopped_zoom_us_instances(){
   done
 }
 
+prepare_pulse_socket() {
+  PULSE_TMPDIR+=$(mktemp -d --tmpdir)
+
+  PULSE_SOCKET+="${PULSE_TMPDIR}/pulse.socket"
+  PULSE_CONFIG+="${PULSE_TMPDIR}/pulse.config"
+  PULSE_COOKIE+="${PULSE_TMPDIR}/pulse.cookie"
+
+  pactl load-module module-native-protocol-unix "socket=${PULSE_SOCKET}"
+
+  cat <<- EOF > "${PULSE_CONFIG}"
+	default-server = unix:${PULSE_SOCKET}
+	autospawn = no
+	daemon-binary = /bin/true
+	enable-shm = false
+	EOF
+}
+
 prepare_docker_env_parameters() {
   ENV_VARS+=" --env=USER_UID=${USER_UID}"
   ENV_VARS+=" --env=USER_GID=${USER_GID}"
   ENV_VARS+=" --env=DISPLAY=unix$DISPLAY"
   ENV_VARS+=" --env=XAUTHORITY=${XAUTH}"
   ENV_VARS+=" --env=TZ=$(date +%Z)"
+  ENV_VARS+=" --env=PULSE_SERVER=unix:${PULSE_SOCKET}"
+  ENV_VARS+=" --env=PULSE_COOKIE=${PULSE_COOKIE}"
 }
 
 prepare_docker_volume_parameters() {
   touch ${XAUTH}
   xauth nlist :0 | sed -e 's/^..../ffff/' | xauth -f ${XAUTH} nmerge -
 
-  VOLUMES+=" --volume=${HOME}/.config:/home/${ZOOM_US_USER}/.config"
+  VOLUMES+=" --volume=${HOME}/.config/zoomus.conf:/home/${ZOOM_US_USER}/.config/zoomus.conf"
   VOLUMES+=" --volume=${HOME}/.zoom:/home/${ZOOM_US_USER}/.zoom"
   VOLUMES+=" --volume=${XSOCK}:${XSOCK}"
   VOLUMES+=" --volume=${XAUTH}:${XAUTH}"
-  VOLUMES+=" --volume=/run/user/${USER_UID}/pulse:/run/pulse"
+  VOLUMES+=" --volume=${PULSE_SOCKET}:${PULSE_SOCKET}"
+  VOLUMES+=" --volume=${PULSE_CONFIG}:/etc/pulse/client.conf"
+  # VOLUMES+=" --volume=/run/user/${USER_UID}/pulse:/run/pulse"
 }
 
 prepare_docker_device_parameters() {
@@ -90,6 +111,9 @@ elif [[ -n ${exec} ]]; then
 fi
 
 cleanup_stopped_zoom_us_instances
+
+prepare_pulse_socket
+
 prepare_docker_env_parameters
 prepare_docker_volume_parameters
 prepare_docker_device_parameters
